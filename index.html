@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>bw</title>
+</head>
+
+<body>
+
+    
+    <div>
+        <input type="file" accept="image/*" id="image-select" />
+    </div>
+    
+    <div>
+        Grayscale values?
+        <input type="number" id="resolution" value="2" min="1" />
+    </div>
+
+    <div>
+        Dither?
+        <input type="checkbox" id="dither" checked/>
+    </div>
+
+    <div>
+        <button id="generate">Generate</button>
+    </div>
+
+    <div id="display"></div>
+
+    <script src="./ColorMatcher.js"></script>
+    <script src="./RGBImage.js"></script>
+    <script src="./ImageUpload.js"></script>
+    <script>
+
+        let imageSelect = new ImageUpload(document.getElementById("image-select"));
+        let generate = document.getElementById("generate");
+        let resolution = document.getElementById("resolution");
+        let dither = document.getElementById("dither");
+
+        let display = document.getElementById("display");
+
+        function getColorTargets(n) {
+            let targets = [];
+            for (let i = 0; i < n; ++i) {
+                let b = Math.floor(i * 255/(n-1));
+                targets.push(new RGBColor(b,b,b));
+            }
+            return targets;
+        }
+
+        function getColorMatcher() {
+            return new ColorMatcher(getColorTargets(Number(resolution.value)));
+        }
+
+        function getErrorDiffusion() {
+            return dither.checked ? [
+                { dx: +1, dy: +0, scale: 7.0/16.0 },
+                { dx: +1, dy: +1, scale: 1.0/16.0 },
+                { dx: +0, dy: +1, scale: 5.0/16.0 },
+                { dx: -1, dy: +1, scale: 3.0/16.0 },
+            ] : [];
+        }
+    
+        function filter(imageData) {
+            // copy of image data 
+            const image = RGBImage.fromImageData(imageData);
+
+            // how to match to new color palette + handle error
+            const errorDiffuser = getErrorDiffusion();
+            const colorMatcher = getColorMatcher();
+
+            for (let row = 0; row < image.height; ++row) {
+                for (let col = 0; col < image.width; ++col) {
+                    // read rgb from image and find closest color
+                    let color = image.getColor(col, row);
+                    let out = colorMatcher.getClosestColor(color);
+
+                    // calculate error
+                    let error = color.sub(out);
+
+                    // apply error diffusion to surrounding pixels
+                    for (let modifier of errorDiffuser) {
+                        let c = col + modifier.dx;
+                        let r = row + modifier.dy;
+
+                        let diffusedPixel = image.getColor(c, r).add(error.mul(modifier.scale));
+                        image.setColor(c, r, diffusedPixel);
+                    }
+
+                    // store pixel in image
+                    image.setColor(col, row, out);
+                }
+            }
+
+            // convert back to image data (to put on canvas)
+            return image.toImageData();
+        }
+
+        generate.onclick = () => {
+            imageSelect.getImageData().then(({image, canvas, data}) => {
+                while (display.firstChild) {
+                    display.removeChild(display.firstChild);
+                }
+
+                if (image==null||canvas==null||data==null) {
+                    return;
+                }
+
+                display.appendChild(image);
+                data = filter(data);
+
+                // convert image data to canvas
+                let cnv = document.createElement("canvas");
+                cnv.width = data.width;
+                cnv.height = data.height;
+
+                let ctx = cnv.getContext("2d");
+                ctx.putImageData(data, 0, 0);
+
+                display.appendChild(cnv);
+            });
+        };
+
+    </script>
+
+</body>
+
+</html>
